@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>CS Night Scanner</title>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #000;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      color: #fff;
+    }
+
+    .camera-wrap {
+      position: relative;
+      width: 100%;
+      flex: 1;
+      overflow: hidden;
+      background: #111;
+    }
+
+    video {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    canvas { display: none; }
+
+    .viewfinder {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+
+    .vf-label {
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.8);
+      margin-bottom: 16px;
+    }
+
+    .scan-box {
+      width: 220px;
+      height: 220px;
+      position: relative;
+      box-shadow: 0 0 0 9999px rgba(0,0,0,0.5);
+      border-radius: 12px;
+    }
+
+    .scan-box::before, .scan-box::after,
+    .scan-box .c::before, .scan-box .c::after {
+      content: '';
+      position: absolute;
+      width: 20px;
+      height: 20px;
+      border-color: #fff;
+      border-style: solid;
+    }
+    .scan-box::before    { top: -2px;    left: -2px;  border-width: 3px 0 0 3px; border-radius: 5px 0 0 0; }
+    .scan-box::after     { top: -2px;    right: -2px; border-width: 3px 3px 0 0; border-radius: 0 5px 0 0; }
+    .scan-box .c::before { bottom: -2px; left: -2px;  border-width: 0 0 3px 3px; border-radius: 0 0 0 5px; }
+    .scan-box .c::after  { bottom: -2px; right: -2px; border-width: 0 3px 3px 0; border-radius: 0 0 5px 0; }
+
+    .scan-line {
+      position: absolute;
+      left: 6px;
+      right: 6px;
+      height: 2px;
+      background: #6366f1;
+      box-shadow: 0 0 10px #6366f1, 0 0 20px #6366f1;
+      border-radius: 2px;
+      animation: scanline 2s ease-in-out infinite;
+    }
+    @keyframes scanline {
+      0%   { top: 6px;              opacity: 0; }
+      10%  { opacity: 1; }
+      90%  { opacity: 1; }
+      100% { top: calc(100% - 6px); opacity: 0; }
+    }
+
+    .panel {
+      background: #0f0f0f;
+      padding: 20px 24px 36px;
+      flex-shrink: 0;
+      min-height: 150px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      border-top: 0.5px solid #222;
+    }
+
+    .panel-idle { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+    .idle-title { font-size: 1rem; font-weight: 600; color: #fff; }
+    .idle-sub   { font-size: 0.8rem; color: #555; }
+
+    .spinner {
+      width: 28px; height: 28px;
+      border: 3px solid #222;
+      border-top-color: #6366f1;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .result {
+      width: 100%;
+      border-radius: 14px;
+      padding: 16px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      animation: rise 0.2s ease;
+    }
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .result.success { background: #052e16; border: 1px solid #166534; }
+    .result.warn    { background: #1c1102; border: 1px solid #92400e; }
+    .result.error   { background: #1c0505; border: 1px solid #991b1b; }
+
+    .result-emoji { font-size: 1.8rem; flex-shrink: 0; }
+    .result-body  { flex: 1; text-align: left; }
+    .result-name  { font-size: 1rem; font-weight: 700; color: #fff; margin-bottom: 2px; }
+    .result-label { font-size: 0.7rem; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase; }
+    .success .result-label { color: #4ade80; }
+    .warn    .result-label { color: #fbbf24; }
+    .error   .result-label { color: #f87171; }
+  </style>
+</head>
+<body>
+
+  <div class="camera-wrap">
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+    <div class="viewfinder">
+      <div class="vf-label" id="vf-label">Point at QR code</div>
+      <div class="scan-box">
+        <div class="c"></div>
+        <div class="scan-line"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel" id="panel">
+    <div class="panel-idle">
+      <span class="idle-title">CS Night 2026</span>
+      <span class="idle-sub">Waiting for scan…</span>
+    </div>
+  </div>
+
+  <script>
+    const APPS_SCRIPT_URL = 'YOUR_APPS_SCRIPT_URL';
+
+    const video  = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const ctx    = canvas.getContext('2d');
+    let cooldown = false;
+
+    function showPanel(html) {
+      document.getElementById('panel').innerHTML = html;
+    }
+
+    function resetPanel() {
+      showPanel(`
+        <div class="panel-idle">
+          <span class="idle-title">CS Night 2026</span>
+          <span class="idle-sub">Waiting for scan…</span>
+        </div>
+      `);
+    }
+
+    function showResult(type, emoji, name, label) {
+      showPanel(`
+        <div class="result ${type}">
+          <div class="result-emoji">${emoji}</div>
+          <div class="result-body">
+            <div class="result-name">${name}</div>
+            <div class="result-label">${label}</div>
+          </div>
+        </div>
+      `);
+      setTimeout(resetPanel, 4000);
+    }
+
+    function tick() {
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        canvas.width  = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = jsQR(imageData.data, imageData.width, imageData.height, {
+          inversionAttempts: "dontInvert"
+        });
+
+        if (code && !cooldown) {
+          cooldown = true;
+          showPanel('<div class="spinner"></div>');
+
+          fetch(`${APPS_SCRIPT_URL}?action=mark&hash=${encodeURIComponent(code.data)}`)
+            .then(res => res.json())
+            .then(data => {
+              if (data.status === 'SUCCESS') {
+                showResult('success', '✅', data.name, 'Verified & Present');
+              } else if (data.status === 'ALREADY SCANNED') {
+                showResult('warn', '⚠️', data.name, 'Already Scanned');
+              } else {
+                showResult('error', '❌', 'Unknown QR Code', 'Not in Database');
+              }
+              setTimeout(() => { cooldown = false; }, 4000);
+            })
+            .catch(() => {
+              showResult('error', '⚠️', 'Network Error', 'Could not reach sheet');
+              setTimeout(() => { cooldown = false; }, 4000);
+            });
+        }
+      }
+      requestAnimationFrame(tick);
+    }
+
+    navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "environment", width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    })
+    .then(stream => {
+      video.srcObject = stream;
+      video.play();
+      requestAnimationFrame(tick);
+    })
+    .catch(err => {
+      document.getElementById('vf-label').textContent = 'Camera error — check permissions';
+      console.error(err);
+    });
+  </script>
+</body>
+</html>
